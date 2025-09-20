@@ -15,21 +15,22 @@ const Index = () => {
   const [progress, setProgress] = useState(0);
   const [totalRecords, setTotalRecords] = useState(0);
   const [processedRecords, setProcessedRecords] = useState(0);
+  const [currentEmail, setCurrentEmail] = useState("");
   const [emailData, setEmailData] = useState("");
   const [linkedinEmail, setLinkedinEmail] = useState("");
   const [linkedinPassword, setLinkedinPassword] = useState("");
   const [results, setResults] = useState<LinkedInResult[]>([]);
   const [status, setStatus] = useState("idle");
   const [errorLogs, setErrorLogs] = useState<string[]>([]);
-  const [serverConnected, setServerConnected] = useState(false);
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
   // Parse CSV data to count records
   const parseCSVData = (csvText: string) => {
     if (!csvText.trim()) return 0;
     const lines = csvText.trim().split('\n');
-    // Subtract 1 for header row
-    return Math.max(0, lines.length - 1);
+    // Subtract 1 for header row if present
+    const hasHeader = lines[0].toLowerCase().includes('email') || lines[0].toLowerCase().includes('name');
+    return Math.max(0, lines.length - (hasHeader ? 1 : 0));
   };
 
   // Handle file upload
@@ -71,102 +72,8 @@ const Index = () => {
     consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [errorLogs]);
 
-  // Check server connection
-  useEffect(() => {
-    const checkServerConnection = async () => {
-      try {
-        const response = await fetch('http://localhost:5000/api/status');
-        if (response.ok) {
-          setServerConnected(true);
-          addLog("Connected to backend server successfully");
-        } else {
-          setServerConnected(false);
-          addLog("Backend server not responding. Please start the server.", true);
-        }
-      } catch (error) {
-        setServerConnected(false);
-        addLog("Backend server not connected. Please start the server with 'npm run server' or 'npm run dev:full'", true);
-      }
-    };
-
-    checkServerConnection();
-    
-    // Check connection every 10 seconds
-    const interval = setInterval(checkServerConnection, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Poll for status updates
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
-    if (isProcessing) {
-      interval = setInterval(async () => {
-        try {
-          const status = await linkedinService.getProcessingStatus();
-          setProgress(status.progress);
-          setProcessedRecords(status.processedRecords);
-          setTotalRecords(status.totalRecords);
-          setStatus(status.status);
-          
-          if (!status.isProcessing) {
-            setIsProcessing(false);
-            if (status.status === "completed") {
-              addLog("Processing completed successfully!");
-              showSuccess("Processing completed successfully!");
-              // Fetch results
-              try {
-                const resultsData = await linkedinService.getResults();
-                // Parse CSV results (simplified)
-                const lines = resultsData.split('\n').filter(line => line.trim());
-                if (lines.length > 1) {
-                  const headers = lines[0].split(',');
-                  const resultsArray: LinkedInResult[] = [];
-                  
-                  for (let i = 1; i < lines.length; i++) {
-                    const values = lines[i].split(',');
-                    const result: any = {};
-                    headers.forEach((header, index) => {
-                      result[header.trim()] = values[index] ? values[index].replace(/"/g, '') : '';
-                    });
-                    resultsArray.push(result as LinkedInResult);
-                  }
-                  
-                  setResults(resultsArray);
-                }
-              } catch (error) {
-                const errorMsg = `Error fetching results: ${error}`;
-                addLog(errorMsg, true);
-                console.error('Error fetching results:', error);
-              }
-            } else if (status.status === "failed") {
-              const errorMsg = "Processing failed. Please check the logs.";
-              addLog(errorMsg, true);
-              showError(errorMsg);
-            }
-          }
-        } catch (error) {
-          const errorMsg = `Error fetching status: ${error}`;
-          addLog(errorMsg, true);
-          console.error('Error fetching status:', error);
-        }
-      }, 1000);
-    }
-    
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isProcessing]);
-
   // Start processing
   const handleStartProcessing = async () => {
-    if (!serverConnected) {
-      const errorMsg = "Backend server not connected. Please start the server with 'npm run server' or 'npm run dev:full'";
-      addLog(errorMsg, true);
-      showError(errorMsg);
-      return;
-    }
-
     if (!emailData.trim()) {
       const errorMsg = "Please provide email data";
       addLog(errorMsg, true);
@@ -183,40 +90,45 @@ const Index = () => {
 
     try {
       addLog("Starting LinkedIn profile matching...");
-      await linkedinService.startProcessing(emailData, linkedinEmail, linkedinPassword);
       setIsProcessing(true);
       setProgress(0);
       setProcessedRecords(0);
-      setStatus("starting");
-      showSuccess("Starting LinkedIn profile matching...");
+      setStatus("processing");
+      setResults([]);
+      
+      const records = linkedinService.parseEmailData(emailData);
+      setTotalRecords(records.length);
+      
+      // Simulate LinkedIn processing
+      const results = await linkedinService.simulateLinkedInProcessing(
+        emailData,
+        (progress, currentEmail) => {
+          setProgress(progress);
+          setCurrentEmail(currentEmail);
+          setProcessedRecords(Math.floor((progress / 100) * records.length));
+        }
+      );
+      
+      setResults(results);
+      setStatus("completed");
+      addLog("Processing completed successfully!");
+      showSuccess("Processing completed successfully!");
     } catch (error: any) {
-      const errorMsg = `Failed to start processing: ${error.message || error}`;
+      const errorMsg = `Failed to process: ${error.message || error}`;
       addLog(errorMsg, true);
-      showError("Failed to start processing. Please check the console for details.");
+      showError("Failed to process. Please check the console for details.");
       setStatus("failed");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   // Stop processing
-  const handleStopProcessing = async () => {
-    if (!serverConnected) {
-      const errorMsg = "Backend server not connected. Please start the server with 'npm run server' or 'npm run dev:full'";
-      addLog(errorMsg, true);
-      showError(errorMsg);
-      return;
-    }
-
-    try {
-      addLog("Stopping processing...");
-      await linkedinService.stopProcessing();
-      setIsProcessing(false);
-      setStatus("stopped");
-      showSuccess("Processing stopped");
-    } catch (error: any) {
-      const errorMsg = `Failed to stop processing: ${error.message || error}`;
-      addLog(errorMsg, true);
-      showError("Failed to stop processing");
-    }
+  const handleStopProcessing = () => {
+    setIsProcessing(false);
+    setStatus("stopped");
+    addLog("Processing stopped by user");
+    showSuccess("Processing stopped");
   };
 
   // Download results
@@ -268,26 +180,16 @@ const Index = () => {
           </p>
         </div>
 
-        {/* Server Connection Status */}
-        <div className={`mb-6 p-4 rounded-md ${serverConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+        {/* Demo Notice */}
+        <div className="mb-6 p-4 rounded-md bg-blue-100 text-blue-800">
           <div className="flex items-center">
-            <div className={`h-3 w-3 rounded-full mr-2 ${serverConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            <span className="font-medium">
-              {serverConnected ? 'Connected to Backend Server' : 'Backend Server Not Connected'}
-            </span>
+            <div className="h-3 w-3 rounded-full bg-blue-500 mr-2"></div>
+            <span className="font-medium">Demo Mode</span>
           </div>
-          {!serverConnected && (
-            <p className="mt-2 text-sm">
-              Please start the backend server with one of these commands:
-              <br />
-              <code className="bg-gray-800 text-gray-100 px-2 py-1 rounded mt-1 block">
-                npm run server
-              </code>
-              <code className="bg-gray-800 text-gray-100 px-2 py-1 rounded mt-1 block">
-                npm run dev:full
-              </code>
-            </p>
-          )}
+          <p className="mt-2 text-sm">
+            This is a demonstration version that simulates LinkedIn profile matching.
+            In a production environment, this would connect to actual LinkedIn profiles.
+          </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -337,7 +239,7 @@ const Index = () => {
               <CardHeader>
                 <CardTitle>LinkedIn Credentials</CardTitle>
                 <CardDescription>
-                  Enter your LinkedIn login information
+                  Enter your LinkedIn login information (simulated)
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -362,8 +264,8 @@ const Index = () => {
                   />
                 </div>
                 <div className="text-xs text-gray-500">
-                  <p className="font-medium">Security Note:</p>
-                  <p>Credentials are only used for this session and not stored.</p>
+                  <p className="font-medium">Note:</p>
+                  <p>Credentials are simulated and not actually used in demo mode.</p>
                 </div>
               </CardContent>
             </Card>
@@ -382,7 +284,7 @@ const Index = () => {
                 <div className="flex gap-2">
                   <Button 
                     onClick={handleStartProcessing}
-                    disabled={isProcessing || !emailData.trim() || !linkedinEmail || !linkedinPassword || !serverConnected}
+                    disabled={isProcessing || !emailData.trim() || !linkedinEmail || !linkedinPassword}
                     className="flex-1"
                   >
                     <Play className="h-4 w-4 mr-2" />
@@ -390,7 +292,7 @@ const Index = () => {
                   </Button>
                   <Button 
                     onClick={handleStopProcessing}
-                    disabled={!isProcessing || !serverConnected}
+                    disabled={!isProcessing}
                     variant="destructive"
                   >
                     <Square className="h-4 w-4" />
@@ -404,6 +306,11 @@ const Index = () => {
                     <span>{processedRecords} of {totalRecords} records</span>
                     <span>{progress}%</span>
                   </div>
+                  {currentEmail && (
+                    <div className="text-xs text-gray-500">
+                      Current: {currentEmail}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -426,29 +333,22 @@ const Index = () => {
                 <div className="flex items-start gap-2">
                   <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">1</div>
                   <div>
-                    <p className="font-medium">Start Backend Server</p>
-                    <p className="text-sm text-gray-600">Run: npm run server or npm run dev:full</p>
+                    <p className="font-medium">Enter email data</p>
+                    <p className="text-sm text-gray-600">Upload CSV or enter manually</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">2</div>
                   <div>
-                    <p className="font-medium">Upload or enter email data</p>
-                    <p className="text-sm text-gray-600">CSV format with Email and Name columns</p>
+                    <p className="font-medium">Enter credentials</p>
+                    <p className="text-sm text-gray-600">Simulated for demo purposes</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">3</div>
                   <div>
-                    <p className="font-medium">Enter LinkedIn credentials</p>
-                    <p className="text-sm text-gray-600">Used only for this session</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">4</div>
-                  <div>
                     <p className="font-medium">Start matching</p>
-                    <p className="text-sm text-gray-600">Results will appear below</p>
+                    <p className="text-sm text-gray-600">Watch simulated results</p>
                   </div>
                 </div>
               </CardContent>
@@ -462,7 +362,7 @@ const Index = () => {
                 <div>
                   <CardTitle>Results</CardTitle>
                   <CardDescription>
-                    Matched LinkedIn profiles
+                    Simulated LinkedIn profile matches
                   </CardDescription>
                 </div>
                 <Button 
@@ -519,7 +419,7 @@ const Index = () => {
                   </div>
                 ) : (
                   <div className="text-center py-8 text-gray-500">
-                    <p>No results yet. Start processing to see matched profiles.</p>
+                    <p>No results yet. Start processing to see simulated matches.</p>
                   </div>
                 )}
               </CardContent>
@@ -530,7 +430,7 @@ const Index = () => {
                 <div>
                   <CardTitle>Console</CardTitle>
                   <CardDescription>
-                    Application logs and errors
+                    Application logs and status messages
                   </CardDescription>
                 </div>
                 <Button 
