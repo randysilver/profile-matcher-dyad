@@ -2,6 +2,7 @@ import csv
 import os
 import logging
 import time
+import random
 from typing import List, Dict, Set, Optional
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -46,6 +47,8 @@ class LinkedInMatcher:
         self.driver = None
         self.headless = headless
         self.is_logged_in = False
+        self.search_count = 0
+        self.last_search_time = 0
         
     def setup_driver(self):
         """Set up Chrome WebDriver with appropriate options."""
@@ -73,6 +76,25 @@ class LinkedInMatcher:
         except Exception as e:
             logger.error(f"Failed to setup WebDriver: {str(e)}")
             raise
+
+    def enforce_rate_limit(self):
+        """
+        Enforce rate limiting to stay within 200 searches/hour.
+        Adds random delay between 18-25 seconds between searches.
+        """
+        if self.search_count > 0:
+            # Base delay of 18 seconds + random 0-7 seconds
+            delay = 18 + random.uniform(0, 7)
+            current_time = time.time()
+            time_since_last_search = current_time - self.last_search_time
+            
+            if time_since_last_search < delay:
+                remaining_delay = delay - time_since_last_search
+                logger.info(f"Rate limiting: Waiting {remaining_delay:.1f} seconds before next search")
+                time.sleep(remaining_delay)
+        
+        self.last_search_time = time.time()
+        self.search_count += 1
 
     def login_to_linkedin(self, email: str, password: str) -> bool:
         """
@@ -159,6 +181,9 @@ class LinkedInMatcher:
             return None
             
         try:
+            # Enforce rate limiting
+            self.enforce_rate_limit()
+            
             # Construct search query
             search_query = f"{name} {email}" if name else email
             
@@ -166,10 +191,21 @@ class LinkedInMatcher:
             search_url = f"https://www.linkedin.com/search/results/people/?keywords={search_query.replace(' ', '%20')}"
             self.driver.get(search_url)
             
-            # Wait for search results to load
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "search-results-container"))
-            )
+            # Wait for search results to load with timeout
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, "search-results-container"))
+                )
+            except TimeoutException:
+                logger.warning(f"Timeout waiting for search results for {email}")
+                return {
+                    "LinkedIn_URL": "",
+                    "LinkedIn_Name": "",
+                    "Job_Title": "",
+                    "Company": "",
+                    "Confidence_Level": "",
+                    "Status": "Timeout"
+                }
             
             # Give some time for results to populate
             time.sleep(2)
@@ -178,14 +214,21 @@ class LinkedInMatcher:
             profiles = self.extract_search_results()
             
             if profiles:
-                # For now, return the first result with basic info
-                first_profile = profiles[0]
+                # Get the best match (first result for now)
+                best_profile = profiles[0]
+                
+                # Try to visit profile page for more detailed information
+                detailed_info = self.extract_detailed_profile_info(best_profile["url"])
+                
+                if detailed_info:
+                    best_profile.update(detailed_info)
+                
                 return {
-                    "LinkedIn_URL": first_profile.get("url", ""),
-                    "LinkedIn_Name": first_profile.get("name", ""),
-                    "Job_Title": first_profile.get("title", ""),
-                    "Company": first_profile.get("company", ""),
-                    "Confidence_Level": "Medium",  # Placeholder for confidence calculation
+                    "LinkedIn_URL": best_profile.get("url", ""),
+                    "LinkedIn_Name": best_profile.get("name", ""),
+                    "Job_Title": best_profile.get("title", ""),
+                    "Company": best_profile.get("company", ""),
+                    "Confidence_Level": self.calculate_confidence_level(email, name, best_profile),
                     "Status": "Found"
                 }
             else:
@@ -254,6 +297,92 @@ class LinkedInMatcher:
             logger.error(f"Error extracting search results: {str(e)}")
             
         return profiles
+
+    def extract_detailed_profile_info(self, profile_url: str) -> Optional[Dict[str, str]]:
+        """
+        Extract detailed information from individual profile page.
+        
+        Args:
+            profile_url: URL of the LinkedIn profile
+            
+        Returns:
+            Dictionary with detailed profile information or None if failed
+        """
+        try:
+            # Enforce rate limiting before visiting profile
+            self.enforce_rate_limit()
+            
+            logger.info(f"Visiting profile: {profile_url}")
+            self.driver.get(profile_url)
+            
+            # Wait for profile to load
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".pv-top-card-profile-picture"))
+                )
+            except TimeoutException:
+                # Check if profile is private
+                try:
+                    private_check = self.driver.find_element(By.CSS_SELECTOR, ".profile-unavailable")
+                    if private_check:
+                        logger.info("Profile is private")
+                        return {"title": "Private Profile", "company": "Private", "status": "Private"}
+                except NoSuchElementException:
+                    logger.warning("Timeout loading profile page")
+                    return None
+            
+            time.sleep(2)  # Allow page to fully load
+            
+            detailed_info = {}
+            
+            # Extract job title
+            try:
+                job_title_element = self.driver.find_element(By.CSS_SELECTOR, ".text-body-medium")
+                detailed_info["title"] = job_title_element.text.strip()
+            except NoSuchElementException:
+                detailed_info["title"] = ""
+            
+            # Extract company
+            try:
+                company_element = self.driver.find_element(By.CSS_SELECTOR, ".pv-text-details__right-panel .inline-show-more-text")
+                detailed_info["company"] = company_element.text.strip()
+            except NoSuchElementException:
+                detailed_info["company"] = ""
+            
+            return detailed_info
+            
+        except Exception as e:
+            logger.error(f"Error extracting detailed profile info: {str(e)}")
+            return None
+
+    def calculate_confidence_level(self, email: str, search_name: str, profile: Dict[str, str]) -> str:
+        """
+        Calculate confidence level based on match quality.
+        
+        Args:
+            email: Original email
+            search_name: Original name from search
+            profile: Extracted profile information
+            
+        Returns:
+            Confidence level: "High", "Medium", or "Low"
+        """
+        profile_name = profile.get("name", "").lower()
+        search_name_lower = search_name.lower() if search_name else ""
+        
+        # Check exact name match
+        if search_name_lower and search_name_lower in profile_name:
+            return "High"
+        
+        # Check email domain match with company
+        email_domain = email.split('@')[1] if '@' in email else ""
+        company = profile.get("company", "").lower()
+        
+        if email_domain and company and email_domain.split('.')[0] in company:
+            return "Medium"
+        
+        # Default to low confidence
+        return "Low"
 
     def close(self):
         """Close the WebDriver."""
@@ -466,9 +595,6 @@ def process_linkedin_profiles(input_file: str, output_file: str):
             # Log progress
             progress = (i / len(pending_data)) * 100
             logger.info(f"Progress: {progress:.1f}% ({i}/{len(pending_data)})")
-            
-            # Add delay to avoid rate limiting
-            time.sleep(2)
         
         logger.info("Processing complete!")
         
