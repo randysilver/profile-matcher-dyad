@@ -3,7 +3,8 @@ import os
 import logging
 import time
 import random
-from typing import List, Dict, Set, Optional
+import re
+from typing import List, Dict, Set, Optional, Tuple
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -203,7 +204,7 @@ class LinkedInMatcher:
                     "LinkedIn_Name": "",
                     "Job_Title": "",
                     "Company": "",
-                    "Confidence_Level": "",
+                    "Confidence_Level": "NO",
                     "Status": "Timeout"
                 }
             
@@ -223,12 +224,15 @@ class LinkedInMatcher:
                 if detailed_info:
                     best_profile.update(detailed_info)
                 
+                # Calculate confidence level based on matching criteria
+                confidence_level = self.calculate_confidence_level(email, name, best_profile)
+                
                 return {
                     "LinkedIn_URL": best_profile.get("url", ""),
                     "LinkedIn_Name": best_profile.get("name", ""),
                     "Job_Title": best_profile.get("title", ""),
                     "Company": best_profile.get("company", ""),
-                    "Confidence_Level": self.calculate_confidence_level(email, name, best_profile),
+                    "Confidence_Level": confidence_level,
                     "Status": "Found"
                 }
             else:
@@ -237,7 +241,7 @@ class LinkedInMatcher:
                     "LinkedIn_Name": "",
                     "Job_Title": "",
                     "Company": "",
-                    "Confidence_Level": "",
+                    "Confidence_Level": "NO",
                     "Status": "Not Found"
                 }
                 
@@ -248,7 +252,7 @@ class LinkedInMatcher:
                 "LinkedIn_Name": "",
                 "Job_Title": "",
                 "Company": "",
-                "Confidence_Level": "",
+                "Confidence_Level": "NO",
                 "Status": f"Error: {str(e)}"
             }
 
@@ -355,9 +359,120 @@ class LinkedInMatcher:
             logger.error(f"Error extracting detailed profile info: {str(e)}")
             return None
 
+    def normalize_name(self, name: str) -> str:
+        """
+        Normalize names for comparison by removing extra spaces and converting to lowercase.
+        
+        Args:
+            name: Name to normalize
+            
+        Returns:
+            Normalized name string
+        """
+        if not name:
+            return ""
+        # Remove extra spaces and convert to lowercase
+        return ' '.join(name.split()).lower()
+
+    def extract_email_domain(self, email: str) -> str:
+        """
+        Extract domain from email address.
+        
+        Args:
+            email: Email address
+            
+        Returns:
+            Domain part of email (lowercase)
+        """
+        if '@' not in email:
+            return ""
+        return email.split('@')[1].lower()
+
+    def extract_company_domain_hint(self, company: str) -> str:
+        """
+        Extract potential domain hint from company name.
+        
+        Args:
+            company: Company name
+            
+        Returns:
+            Potential domain hint (lowercase)
+        """
+        if not company:
+            return ""
+        
+        # Remove common company suffixes and get first word
+        company_lower = company.lower()
+        company_clean = re.sub(r'\b(inc|llc|ltd|corp|corporation|company|co|group|holdings|technologies|tech)\b', '', company_lower)
+        company_clean = re.sub(r'[^\w\s]', '', company_clean)  # Remove punctuation
+        company_clean = ' '.join(company_clean.split())  # Remove extra spaces
+        
+        # Get first meaningful word as domain hint
+        words = company_clean.split()
+        return words[0] if words else ""
+
+    def is_product_role(self, job_title: str) -> bool:
+        """
+        Check if job title contains product-related terms.
+        
+        Args:
+            job_title: Job title to check
+            
+        Returns:
+            True if job title contains product-related terms
+        """
+        if not job_title:
+            return False
+        
+        product_keywords = [
+            'product', 'pm', 'product manager', 'product owner', 
+            'product lead', 'product director', 'head of product',
+            'vp product', 'product marketing', 'product management'
+        ]
+        
+        job_lower = job_title.lower()
+        return any(keyword in job_lower for keyword in product_keywords)
+
+    def names_match(self, search_name: str, profile_name: str) -> bool:
+        """
+        Check if names match reasonably well.
+        
+        Args:
+            search_name: Name from search input
+            profile_name: Name from LinkedIn profile
+            
+        Returns:
+            True if names match reasonably well
+        """
+        if not search_name or not profile_name:
+            return False
+        
+        search_normalized = self.normalize_name(search_name)
+        profile_normalized = self.normalize_name(profile_name)
+        
+        # Exact match
+        if search_normalized == profile_normalized:
+            return True
+        
+        # Check if search name is contained in profile name or vice versa
+        if search_normalized in profile_normalized or profile_normalized in search_normalized:
+            return True
+        
+        # Check for common name variations (first name match)
+        search_first = search_normalized.split()[0] if search_normalized else ""
+        profile_first = profile_normalized.split()[0] if profile_normalized else ""
+        
+        return search_first == profile_first
+
     def calculate_confidence_level(self, email: str, search_name: str, profile: Dict[str, str]) -> str:
         """
-        Calculate confidence level based on match quality.
+        Calculate confidence level based on matching criteria.
+        
+        Confidence Criteria:
+        HIGH: Email domain matches company AND name matches AND job title contains "Product"
+        MEDIUM: Name matches AND job contains "Product" OR email domain matches company
+        LOW: Name matches only OR partial match with product role
+        NO: No reasonable match
         
         Args:
             email: Original email
@@ -365,24 +480,41 @@ class LinkedInMatcher:
             profile: Extracted profile information
             
         Returns:
-            Confidence level: "High", "Medium", or "Low"
+            Confidence level: "HIGH", "MEDIUM", "LOW", or "NO"
         """
-        profile_name = profile.get("name", "").lower()
-        search_name_lower = search_name.lower() if search_name else ""
+        profile_name = profile.get("name", "")
+        job_title = profile.get("title", "")
+        company = profile.get("company", "")
         
-        # Check exact name match
-        if search_name_lower and search_name_lower in profile_name:
-            return "High"
+        # Extract domain information
+        email_domain = self.extract_email_domain(email)
+        company_domain_hint = self.extract_company_domain_hint(company)
         
-        # Check email domain match with company
-        email_domain = email.split('@')[1] if '@' in email else ""
-        company = profile.get("company", "").lower()
+        # Check domain match
+        domain_matches = email_domain and company_domain_hint and email_domain.startswith(company_domain_hint)
         
-        if email_domain and company and email_domain.split('.')[0] in company:
-            return "Medium"
+        # Check name match
+        name_matches = self.names_match(search_name, profile_name)
         
-        # Default to low confidence
-        return "Low"
+        # Check product role
+        has_product_role = self.is_product_role(job_title)
+        
+        # Apply confidence criteria
+        if domain_matches and name_matches and has_product_role:
+            logger.info(f"HIGH confidence: Domain matches, name matches, product role found for {email}")
+            return "HIGH"
+        
+        elif (name_matches and has_product_role) or domain_matches:
+            logger.info(f"MEDIUM confidence: Name+Product or Domain match for {email}")
+            return "MEDIUM"
+        
+        elif name_matches:
+            logger.info(f"LOW confidence: Name matches only for {email}")
+            return "LOW"
+        
+        else:
+            logger.info(f"NO confidence: No reasonable match for {email}")
+            return "NO"
 
     def close(self):
         """Close the WebDriver."""
@@ -585,7 +717,7 @@ def process_linkedin_profiles(input_file: str, output_file: str):
                     "LinkedIn_Name": "",
                     "Job_Title": "",
                     "Company": "",
-                    "Confidence_Level": "",
+                    "Confidence_Level": "NO",
                     "Status": "Search Failed"
                 }
             
