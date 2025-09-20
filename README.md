@@ -9,6 +9,7 @@ A web application that finds and matches LinkedIn profiles with email addresses.
 - Automated LinkedIn profile search
 - Confidence scoring (HIGH, MEDIUM, LOW, NO)
 - Results export to CSV
+- Real-time console for monitoring
 
 ## Deployment Instructions
 
@@ -36,33 +37,52 @@ A web application that finds and matches LinkedIn profiles with email addresses.
    npm install
    ```
 
-4. **Start the application:**
+### Running the Application
+
+You have two options to run the application:
+
+#### Option 1: Run Frontend and Backend Separately (Recommended for Development)
+
+1. **Start the backend server:**
    ```bash
-   npm run dev:full
+   npm run server
    ```
+   This starts the backend server on http://localhost:5000
 
-   This will start both:
-   - React frontend on http://localhost:8080
-   - Backend server on http://localhost:5000
+2. **In a new terminal, start the frontend:**
+   ```bash
+   npm run dev
+   ```
+   This starts the React frontend on http://localhost:8080
 
-5. **Open the application:**
-   Navigate to http://localhost:8080 in your browser
+#### Option 2: Run Both Together (Convenient for Testing)
+
+```bash
+npm run dev:full
+```
+This starts both the frontend (http://localhost:8080) and backend (http://localhost:5000) servers simultaneously.
 
 ### Usage
 
-1. **Enter Data:**
+1. **Open the application:**
+   Navigate to http://localhost:8080 in your browser
+
+2. **Check server connection:**
+   Make sure the "Connected to Backend Server" message is displayed at the top
+
+3. **Enter Data:**
    - Upload a CSV file with Email and Name columns
    - Or manually enter data in the text area
 
-2. **Enter LinkedIn Credentials:**
+4. **Enter LinkedIn Credentials:**
    - Provide your LinkedIn email and password
    - Credentials are only used for this session
 
-3. **Start Matching:**
+5. **Start Matching:**
    - Click "Start Matching" to begin processing
-   - Watch progress in the status panel
+   - Watch progress in the status panel and console
 
-4. **View Results:**
+6. **View Results:**
    - Results will appear in the results panel
    - Download results as CSV when complete
 
@@ -81,6 +101,8 @@ LinkedIn credentials are only used for the current session and are not stored pe
 
 ### Troubleshooting
 
+- **Server connection error:** Make sure the backend server is running (`npm run server`)
 - **Chrome not found:** Make sure Google Chrome is installed
 - **Python errors:** Ensure Python 3.6+ is installed and in PATH
 - **Port conflicts:** Change ports in server.js and vite.config.ts if needed
+- **CORS errors:** Make sure both frontend and backend are running

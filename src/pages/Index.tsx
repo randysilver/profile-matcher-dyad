@@ -21,6 +21,7 @@ const Index = () => {
   const [results, setResults] = useState<LinkedInResult[]>([]);
   const [status, setStatus] = useState("idle");
   const [errorLogs, setErrorLogs] = useState<string[]>([]);
+  const [serverConnected, setServerConnected] = useState(false);
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
   // Parse CSV data to count records
@@ -69,6 +70,31 @@ const Index = () => {
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [errorLogs]);
+
+  // Check server connection
+  useEffect(() => {
+    const checkServerConnection = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/status');
+        if (response.ok) {
+          setServerConnected(true);
+          addLog("Connected to backend server successfully");
+        } else {
+          setServerConnected(false);
+          addLog("Backend server not responding. Please start the server.", true);
+        }
+      } catch (error) {
+        setServerConnected(false);
+        addLog("Backend server not connected. Please start the server with 'npm run server' or 'npm run dev:full'", true);
+      }
+    };
+
+    checkServerConnection();
+    
+    // Check connection every 10 seconds
+    const interval = setInterval(checkServerConnection, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Poll for status updates
   useEffect(() => {
@@ -134,6 +160,13 @@ const Index = () => {
 
   // Start processing
   const handleStartProcessing = async () => {
+    if (!serverConnected) {
+      const errorMsg = "Backend server not connected. Please start the server with 'npm run server' or 'npm run dev:full'";
+      addLog(errorMsg, true);
+      showError(errorMsg);
+      return;
+    }
+
     if (!emailData.trim()) {
       const errorMsg = "Please provide email data";
       addLog(errorMsg, true);
@@ -156,8 +189,8 @@ const Index = () => {
       setProcessedRecords(0);
       setStatus("starting");
       showSuccess("Starting LinkedIn profile matching...");
-    } catch (error) {
-      const errorMsg = `Failed to start processing: ${error}`;
+    } catch (error: any) {
+      const errorMsg = `Failed to start processing: ${error.message || error}`;
       addLog(errorMsg, true);
       showError("Failed to start processing. Please check the console for details.");
       setStatus("failed");
@@ -166,14 +199,21 @@ const Index = () => {
 
   // Stop processing
   const handleStopProcessing = async () => {
+    if (!serverConnected) {
+      const errorMsg = "Backend server not connected. Please start the server with 'npm run server' or 'npm run dev:full'";
+      addLog(errorMsg, true);
+      showError(errorMsg);
+      return;
+    }
+
     try {
       addLog("Stopping processing...");
       await linkedinService.stopProcessing();
       setIsProcessing(false);
       setStatus("stopped");
       showSuccess("Processing stopped");
-    } catch (error) {
-      const errorMsg = `Failed to stop processing: ${error}`;
+    } catch (error: any) {
+      const errorMsg = `Failed to stop processing: ${error.message || error}`;
       addLog(errorMsg, true);
       showError("Failed to stop processing");
     }
@@ -226,6 +266,28 @@ const Index = () => {
           <p className="text-lg text-gray-600">
             Find and match LinkedIn profiles with email addresses directly in your browser
           </p>
+        </div>
+
+        {/* Server Connection Status */}
+        <div className={`mb-6 p-4 rounded-md ${serverConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+          <div className="flex items-center">
+            <div className={`h-3 w-3 rounded-full mr-2 ${serverConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className="font-medium">
+              {serverConnected ? 'Connected to Backend Server' : 'Backend Server Not Connected'}
+            </span>
+          </div>
+          {!serverConnected && (
+            <p className="mt-2 text-sm">
+              Please start the backend server with one of these commands:
+              <br />
+              <code className="bg-gray-800 text-gray-100 px-2 py-1 rounded mt-1 block">
+                npm run server
+              </code>
+              <code className="bg-gray-800 text-gray-100 px-2 py-1 rounded mt-1 block">
+                npm run dev:full
+              </code>
+            </p>
+          )}
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -320,7 +382,7 @@ const Index = () => {
                 <div className="flex gap-2">
                   <Button 
                     onClick={handleStartProcessing}
-                    disabled={isProcessing || !emailData.trim() || !linkedinEmail || !linkedinPassword}
+                    disabled={isProcessing || !emailData.trim() || !linkedinEmail || !linkedinPassword || !serverConnected}
                     className="flex-1"
                   >
                     <Play className="h-4 w-4 mr-2" />
@@ -328,7 +390,7 @@ const Index = () => {
                   </Button>
                   <Button 
                     onClick={handleStopProcessing}
-                    disabled={!isProcessing}
+                    disabled={!isProcessing || !serverConnected}
                     variant="destructive"
                   >
                     <Square className="h-4 w-4" />
@@ -364,19 +426,26 @@ const Index = () => {
                 <div className="flex items-start gap-2">
                   <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">1</div>
                   <div>
+                    <p className="font-medium">Start Backend Server</p>
+                    <p className="text-sm text-gray-600">Run: npm run server or npm run dev:full</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">2</div>
+                  <div>
                     <p className="font-medium">Upload or enter email data</p>
                     <p className="text-sm text-gray-600">CSV format with Email and Name columns</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">2</div>
+                  <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">3</div>
                   <div>
                     <p className="font-medium">Enter LinkedIn credentials</p>
                     <p className="text-sm text-gray-600">Used only for this session</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">3</div>
+                  <div className="mt-0.5 h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center text-xs text-white">4</div>
                   <div>
                     <p className="font-medium">Start matching</p>
                     <p className="text-sm text-gray-600">Results will appear below</p>
