@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,8 @@ const Index = () => {
   const [linkedinPassword, setLinkedinPassword] = useState("");
   const [results, setResults] = useState<LinkedInResult[]>([]);
   const [status, setStatus] = useState("idle");
+  const [errorLogs, setErrorLogs] = useState<string[]>([]);
+  const consoleEndRef = useRef<HTMLDivElement>(null);
 
   // Parse CSV data to count records
   const parseCSVData = (csvText: string) => {
@@ -50,6 +52,24 @@ const Index = () => {
     setTotalRecords(parseCSVData(value));
   };
 
+  // Add log message
+  const addLog = (message: string, isError: boolean = false) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = `[${timestamp}] ${message}`;
+    setErrorLogs(prev => [...prev, logMessage]);
+    
+    if (isError) {
+      console.error(logMessage);
+    } else {
+      console.log(logMessage);
+    }
+  };
+
+  // Scroll to bottom of console
+  useEffect(() => {
+    consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [errorLogs]);
+
   // Poll for status updates
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -66,6 +86,7 @@ const Index = () => {
           if (!status.isProcessing) {
             setIsProcessing(false);
             if (status.status === "completed") {
+              addLog("Processing completed successfully!");
               showSuccess("Processing completed successfully!");
               // Fetch results
               try {
@@ -88,13 +109,19 @@ const Index = () => {
                   setResults(resultsArray);
                 }
               } catch (error) {
+                const errorMsg = `Error fetching results: ${error}`;
+                addLog(errorMsg, true);
                 console.error('Error fetching results:', error);
               }
             } else if (status.status === "failed") {
-              showError("Processing failed. Please check the logs.");
+              const errorMsg = "Processing failed. Please check the logs.";
+              addLog(errorMsg, true);
+              showError(errorMsg);
             }
           }
         } catch (error) {
+          const errorMsg = `Error fetching status: ${error}`;
+          addLog(errorMsg, true);
           console.error('Error fetching status:', error);
         }
       }, 1000);
@@ -108,16 +135,21 @@ const Index = () => {
   // Start processing
   const handleStartProcessing = async () => {
     if (!emailData.trim()) {
-      showError("Please provide email data");
+      const errorMsg = "Please provide email data";
+      addLog(errorMsg, true);
+      showError(errorMsg);
       return;
     }
 
     if (!linkedinEmail || !linkedinPassword) {
-      showError("Please enter LinkedIn credentials");
+      const errorMsg = "Please enter LinkedIn credentials";
+      addLog(errorMsg, true);
+      showError(errorMsg);
       return;
     }
 
     try {
+      addLog("Starting LinkedIn profile matching...");
       await linkedinService.startProcessing(emailData, linkedinEmail, linkedinPassword);
       setIsProcessing(true);
       setProgress(0);
@@ -125,6 +157,8 @@ const Index = () => {
       setStatus("starting");
       showSuccess("Starting LinkedIn profile matching...");
     } catch (error) {
+      const errorMsg = `Failed to start processing: ${error}`;
+      addLog(errorMsg, true);
       showError("Failed to start processing. Please check the console for details.");
       setStatus("failed");
     }
@@ -133,11 +167,14 @@ const Index = () => {
   // Stop processing
   const handleStopProcessing = async () => {
     try {
+      addLog("Stopping processing...");
       await linkedinService.stopProcessing();
       setIsProcessing(false);
       setStatus("stopped");
       showSuccess("Processing stopped");
     } catch (error) {
+      const errorMsg = `Failed to stop processing: ${error}`;
+      addLog(errorMsg, true);
       showError("Failed to stop processing");
     }
   };
@@ -145,7 +182,9 @@ const Index = () => {
   // Download results
   const handleDownloadResults = () => {
     if (results.length === 0) {
-      showError("No results to download");
+      const errorMsg = "No results to download";
+      addLog(errorMsg, true);
+      showError(errorMsg);
       return;
     }
 
@@ -167,7 +206,13 @@ const Index = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
+    addLog("Results downloaded successfully!");
     showSuccess("Results downloaded successfully!");
+  };
+
+  // Clear console
+  const handleClearConsole = () => {
+    setErrorLogs([]);
   };
 
   return (
@@ -412,40 +457,37 @@ const Index = () => {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Features</CardTitle>
-                <CardDescription>
-                  What this application can do
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Console</CardTitle>
+                  <CardDescription>
+                    Application logs and errors
+                  </CardDescription>
+                </div>
+                <Button 
+                  onClick={handleClearConsole}
+                  variant="outline"
+                  size="sm"
+                >
+                  Clear
+                </Button>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-start gap-2">
-                  <div className="mt-1 h-2 w-2 rounded-full bg-green-500"></div>
-                  <div>
-                    <p className="font-medium">CSV Processing</p>
-                    <p className="text-sm text-gray-600">Upload or manually enter email data</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <div className="mt-1 h-2 w-2 rounded-full bg-green-500"></div>
-                  <div>
-                    <p className="font-medium">LinkedIn Integration</p>
-                    <p className="text-sm text-gray-600">Automated profile search</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <div className="mt-1 h-2 w-2 rounded-full bg-green-500"></div>
-                  <div>
-                    <p className="font-medium">Confidence Scoring</p>
-                    <p className="text-sm text-gray-600">HIGH, MEDIUM, LOW, NO confidence levels</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <div className="mt-1 h-2 w-2 rounded-full bg-green-500"></div>
-                  <div>
-                    <p className="font-medium">Results Export</p>
-                    <p className="text-sm text-gray-600">Download results as CSV</p>
-                  </div>
+              <CardContent>
+                <div className="bg-gray-900 text-green-400 p-4 rounded-md h-48 overflow-y-auto font-mono text-sm">
+                  {errorLogs.length > 0 ? (
+                    <>
+                      {errorLogs.map((log, index) => (
+                        <div key={index} className="mb-1">
+                          {log}
+                        </div>
+                      ))}
+                      <div ref={consoleEndRef} />
+                    </>
+                  ) : (
+                    <div className="text-gray-500">
+                      No logs yet. Start processing to see logs here.
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
