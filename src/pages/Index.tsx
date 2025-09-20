@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { MadeWithDyad } from "@/components/made-with-dyad";
 import { showSuccess, showError } from "@/utils/toast";
-import { Play, Stop, Upload, Download } from "lucide-react";
+import { Play, Square, Upload, Download } from "lucide-react";
 import { linkedinService, LinkedInResult } from "@/services/linkedinService";
 
 const Index = () => {
@@ -286,7 +286,7 @@ const Index = () => {
                     disabled={!isProcessing}
                     variant="destructive"
                   >
-                    <Stop className="h-4 w-4" />
+                    <Square className="h-4 w-4" />
                   </Button>
                 </div>
 
