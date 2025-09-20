@@ -1,91 +1,86 @@
 # LinkedIn Profile Matcher
 
-A Python application that reads email addresses from a CSV file and searches for matching LinkedIn profiles.
+A web application that finds and matches LinkedIn profiles with email addresses.
 
 ## Features
 
-- Reads email addresses and optional names from CSV input
-- Creates structured output CSV with LinkedIn profile fields
-- LinkedIn authentication with Selenium WebDriver
-- Profile search functionality
-- Resume capability - skips already processed entries
-- Progress tracking and logging
-- Error handling for file operations and LinkedIn interactions
+- Browser-based interface for easy use
+- Upload CSV files or enter data manually
+- Automated LinkedIn profile search
+- Confidence scoring (HIGH, MEDIUM, LOW, NO)
+- Results export to CSV
 
-## Requirements
+## Deployment Instructions
 
-- Python 3.6+
-- Chrome browser installed
-- LinkedIn account credentials
+### Prerequisites
 
-## Installation
+1. **Python 3.6+** installed
+2. **Node.js 14+** installed
+3. **Google Chrome** browser installed
 
-1. Install required packages:
-```bash
-pip install -r requirements.txt
-```
+### Installation Steps
 
-## Usage
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repository-url>
+   cd <your-repository-folder>
+   ```
 
-1. Create an input CSV file named `input_emails.csv` with at least an "Email" column
-2. Optionally include a "Name" column
-3. Run the application:
-```bash
-python linkedin_matcher.py
-```
-4. Enter your LinkedIn credentials when prompted
-5. Results will be saved to `linkedin_results.csv`
+2. **Install Python dependencies:**
+   ```bash
+   pip install selenium webdriver-manager
+   ```
 
-### Environment Variables (Optional)
+3. **Install Node.js dependencies:**
+   ```bash
+   npm install
+   ```
 
-You can set LinkedIn credentials as environment variables:
-```bash
-export LINKEDIN_EMAIL="your_email@example.com"
-export LINKEDIN_PASSWORD="your_password"
-```
+4. **Start the application:**
+   ```bash
+   npm run dev:full
+   ```
 
-## Input File Format
+   This will start both:
+   - React frontend on http://localhost:8080
+   - Backend server on http://localhost:5000
 
-The input CSV must contain at least an "Email" column. It can optionally include a "Name" column:
+5. **Open the application:**
+   Navigate to http://localhost:8080 in your browser
 
+### Usage
+
+1. **Enter Data:**
+   - Upload a CSV file with Email and Name columns
+   - Or manually enter data in the text area
+
+2. **Enter LinkedIn Credentials:**
+   - Provide your LinkedIn email and password
+   - Credentials are only used for this session
+
+3. **Start Matching:**
+   - Click "Start Matching" to begin processing
+   - Watch progress in the status panel
+
+4. **View Results:**
+   - Results will appear in the results panel
+   - Download results as CSV when complete
+
+### File Format
+
+Input CSV should have this format:
 ```csv
 Email,Name
 john.doe@example.com,John Doe
 jane.smith@example.com,Jane Smith
 ```
 
-## Output File Format
+### Security Note
 
-The output CSV will contain the following columns:
-- Email: The email address from input
-- Name: The name from input (if provided)
-- LinkedIn_URL: LinkedIn profile URL
-- LinkedIn_Name: Name from LinkedIn profile
-- Job_Title: Job title from LinkedIn
-- Company: Company from LinkedIn
-- Confidence_Level: Confidence level of match
-- Status: Processing status (Found, Not Found, Error, etc.)
+LinkedIn credentials are only used for the current session and are not stored permanently.
 
-## Important Notes
+### Troubleshooting
 
-- The application uses Selenium WebDriver for browser automation
-- Chrome browser must be installed on your system
-- LinkedIn may show CAPTCHA or require additional verification
-- Use responsibly and respect LinkedIn's terms of service
-- The application includes delays to avoid rate limiting
-
-## Resume Capability
-
-The application automatically detects already processed emails in the output file and skips them, allowing you to resume processing after interruptions.
-
-## Logging
-
-All operations are logged to both the console and `linkedin_matcher.log` file.
-
-## Troubleshooting
-
-If you encounter issues:
-1. Make sure Chrome browser is installed
-2. Check your LinkedIn credentials
-3. Run with headless=False for debugging
-4. Check the log file for detailed error messages
+- **Chrome not found:** Make sure Google Chrome is installed
+- **Python errors:** Ensure Python 3.6+ is installed and in PATH
+- **Port conflicts:** Change ports in server.js and vite.config.ts if needed
